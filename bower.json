@@ -1,0 +1,24 @@
+{
+  "name": "orgchart.svg",
+  "description": "Modern organisational chart rendered with pure SVG.",
+  "main": "dist/orgchart.svg.js",
+  "authors": [
+    "brightshadow86@gmail.com"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "typescript",
+    "orgchart",
+	"svg",
+	"organisational",
+	"chart"
+  ],
+  "homepage": "https://github.com/BrightShadow/orgchart.svg",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ]
+}

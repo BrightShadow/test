@@ -1,0 +1,30 @@
+{
+    "compilerOptions": {
+        "target": "es5",
+        "module": "commonjs",
+        "noImplicitAny": false,
+        "removeComments": false,
+        "noLib": false,
+        "preserveConstEnums": true,
+        "declaration": true,
+        "suppressImplicitAnyIndexErrors": true,
+        "outDir": "dist"
+    },
+    "files": [
+		"./typings/index.d.ts",
+        "./ts/config.debug.options.ts",
+		"./ts/connector.type.ts",
+		"./ts/demo.nodes.ts",
+		"./ts/node.options.ts",
+		"./ts/org.chart.config.ts",
+		"./ts/orgchart.events.ts",
+		"./ts/orgchart.level.info.ts",
+		"./ts/orgchart.level.node.ts",
+		"./ts/orgchart.node.ts",
+		"./ts/orgchart.svg.ts",
+		"./ts/orgchart.template.ts",
+		"./ts/orghcart.connector.options.ts",
+		"./ts/tip.over.options.ts",
+		"./ts/index.ts"
+    ]
+}
