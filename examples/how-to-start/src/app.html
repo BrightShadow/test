@@ -1,3 +1,21 @@
 <template>
-  <h1>${message}</h1>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden
+        }
+
+        #orgChartSvg {
+            position: fixed;
+            top: 120px;
+            left: 0;
+            height: 100%;
+            width: 100%
+        }
+    </style>
+
+    <h1>How to start</h1>
+    <p>A short example how to use minimal configuration to render Orgchart.svg.</p>
+    <svg id="orgChartSvg" style="background-color: white"></svg>
 </template>

@@ -23916,6 +23916,1921 @@ define('aurelia-templating-binding',['exports', 'aurelia-logging', 'aurelia-bind
     config.container.registerAlias(_aureliaTemplating.BindingLanguage, TemplatingBindingLanguage);
   }
 });
+
+
+/* globals Snap, document, navigator */
+
+/**
+ *  snapsvg-zpd.js: A zoom/pan/drag plugin for Snap.svg
+ * ==================================================
+ *
+ *  Usage
+ * =======
+ * var paper = Snap();
+ * var bigCircle = paper.circle(150, 150, 100);
+ * paper.zpd();
+ *
+ * // or settings and callback
+ * paper.zpd({ zoom: false }), function (err, paper) { });
+ *
+ * // or callback
+ * paper.zpd(function (err, paper) { });
+ *
+ * // destroy
+ * paper.zpd('destroy');
+ *
+ * // save
+ * paper.zpd('save');
+ *
+ * // load
+ * // paper.zpd({ load: SVGMatrix {} });
+ *
+ * // origin
+ * paper.zpd('origin');
+ *
+ * // zoomTo
+ * paper.zoomTo(1);
+ *
+ * // panTo
+ * paper.panTo(0, 0); // original location
+ * paper.panTo('+10', 0); // move right
+ *
+ * // rotate
+ * paper.rotate(15); // rotate 15 deg
+ *
+ *  Notice
+ * ========
+ * This usually use on present view only. Not for Storing, modifying the paper.
+ *
+ * Reason:
+ * Usually <pan> <zoom> => <svg transform="matrix(a,b,c,d,e,f)"></svg>
+ *
+ * But if you need to store the <drag> location, (for storing)
+ * we have to use <circle cx="x" cy="y"></circle> not <circle tranform="matrix(a,b,c,d,e,f)"></circle>
+ *
+ *  License
+ * =========
+ * This code is licensed under the following BSD license:
+ *
+ * Copyright 2014 Huei Tan <huei90@gmail.com> (Snap.svg integration). All rights reserved.
+ * Copyright 2009-2010 Andrea Leofreddi <a.leofreddi@itcharm.com> (original author). All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without modification, are
+ * permitted provided that the following conditions are met:
+ *
+ *    1. Redistributions of source code must retain the above copyright notice, this list of
+ *       conditions and the following disclaimer.
+ *
+ *    2. Redistributions in binary form must reproduce the above copyright notice, this list
+ *       of conditions and the following disclaimer in the documentation and/or other materials
+ *       provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY Andrea Leofreddi ``AS IS'' AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL Andrea Leofreddi OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * The views and conclusions contained in the software and documentation are those of the
+ * authors and should not be interpreted as representing official policies, either expressed
+ * or implied, of Andrea Leofreddi.
+ */
+
+SVGElement.prototype.getTransformToElement = SVGElement.prototype.getTransformToElement || function(elem) {
+	return elem.getScreenCTM().inverse().multiply(this.getScreenCTM());
+};
+
+
+(function (Snap) {
+    Snap.plugin(function (Snap, Element, Paper, glob, Fragment) {
+
+        /**
+         * Global variable for snap.svg.zpd plugin
+         */
+        var snapsvgzpd = {
+            uniqueIdPrefix: 'snapsvg-zpd-',     // prefix for the unique ids created for zpd
+            dataStore: {},                      // "global" storage for all our zpd elements
+            enable: true                        // By default, snapsvgzpd should enable, zpd('toggle') to toggle enable or disable
+        };
+
+        /**
+         * Global variable to store root of the svg element
+         */
+        var rootSvgObject;
+
+        /**
+         * remove node parent but keep children
+         */
+        var _removeNodeKeepChildren = function removeNodeKeepChildren(node) {
+            if (!node.parentNode) {
+                return;
+            }
+            while (node.firstChild) {
+                node.parentNode.insertBefore(node.firstChild, node);
+            }
+            node.parentNode.removeChild(node);
+        };
+
+        /**
+         * Detect is +1 -1 or 1
+         * increase decrease or just number
+         */
+        var _increaseDecreaseOrNumber = function increaseDecreaseOrNumber(defaultValue, input) {
+            if (input === undefined) {
+                return parseInt(defaultValue);
+            } else if (input[0] == '+') {
+                return defaultValue + parseInt(input.split('+')[1]);
+            } else if (input[0] == '-') {
+                return defaultValue - parseInt(input.split('-')[1]);
+            } else {
+                return parseInt(input);
+            }
+        };
+
+        /**
+         * Sets the current transform matrix of an element.
+         */
+        var _setCTM = function setCTM(element, matrix, threshold) {
+            if (threshold && typeof threshold === 'object') { // array [0.5,2]
+                var oldMatrix = Snap(element).transform().globalMatrix;
+
+                if (matrix.a < oldMatrix.a && matrix.a < threshold[0]) {
+                    return;
+                } else if (matrix.a > oldMatrix.a && matrix.a > threshold[1]) {
+                    return;
+                }
+
+                if (matrix.d < oldMatrix.d && matrix.d < threshold[0]) {
+                    return;
+                } else if (matrix.d > oldMatrix.d && matrix.d > threshold[1]) {
+                    return;
+                }
+            }
+            var s = "matrix(" + matrix.a + "," + matrix.b + "," + matrix.c + "," + matrix.d + "," + matrix.e + "," + matrix.f + ")";
+            element.setAttribute("transform", s);
+        };
+
+        /**
+         * Dumps a matrix to a string (useful for debug).
+         */
+        var _dumpMatrix = function dumpMatrix(matrix) {
+            var s = "[ " + matrix.a + ", " + matrix.c + ", " + matrix.e + "\n  " + matrix.b + ", " + matrix.d + ", " + matrix.f + "\n  0, 0, 1 ]";
+            return s;
+        };
+
+        /**
+         * Instance an SVGPoint object with given event coordinates.
+         */
+         var _findPos = function findPos(obj) {
+           var curleft = curtop = 0;
+           if (obj.offsetParent) {
+               do {
+                   curleft += obj.offsetLeft;
+                   curtop += obj.offsetTop;
+               } while(obj = obj.offsetParent);
+           }
+           return [curleft,curtop];
+        };
+        var _getEventPoint = function getEventPoint(event, svgNode) {
+
+            var p = svgNode.node.createSVGPoint(),
+            svgPos = _findPos(svgNode.node);
+
+            p.x = event.clientX - svgPos[0];
+            p.y = event.clientY - svgPos[1];
+
+            return p;
+        };
+
+        /**
+         * Get an svg transformation matrix as string representation
+         */
+        var _getSvgMatrixAsString = function _getMatrixAsString (matrix) {
+
+            return 'matrix(' + matrix.a + ',' + matrix.b + ',' + matrix.c + ',' + matrix.d + ',' + matrix.e + ',' + matrix.f + ')';
+        };
+
+        /**
+         * add a new <g> element to the paper
+         * add paper nodes into <g> element (Snapsvg Element)
+         * and give the nodes an unique id like 'snapsvg-zpd-12345'
+         * and let this <g> Element to global snapsvgzpd.dataStore['snapsvg-zpd-12345']
+         * and
+         * <svg>
+         *     <def>something</def>
+         *     <circle cx="10" cy="10" r="100"></circle>
+         * </svg>
+         *
+         * transform to =>
+         *
+         * <svg>
+         *     <g id="snapsvg-zpd-12345">
+         *         <def>something</def>
+         *         <circle cx="10" cy="10" r="100"></circle>
+         *     </g>
+         * </svg>
+         */
+        var _initZpdElement = function initAndGetZpdElement (svgObject, options) {
+
+            // get root of svg object
+            rootSvgObject = svgObject.node;
+
+            // get all child nodes in our svg element
+            var rootChildNodes = svgObject.node.childNodes;
+
+            // create a new graphics element in our svg element
+            var gElement = svgObject.g();
+            var gNode = gElement.node;
+
+            // add our unique id to the element
+            gNode.id = snapsvgzpd.uniqueIdPrefix + svgObject.id;
+
+            // check if a matrix has been supplied to initialize the drawing
+            if (options.load && typeof options.load === 'object') {
+
+                var matrix = options.load;
+
+                // create a matrix string from our supplied matrix
+                var matrixString = "matrix(" + matrix.a + "," + matrix.b + "," + matrix.c + "," + matrix.d + "," + matrix.e + "," + matrix.f + ")";
+
+                // load <g> transform matrix
+                gElement.transform(matrixString);
+
+            } else {
+                // initial set <g transform="matrix(1,0,0,1,0,0)">
+                gElement.transform('matrix');
+            }
+
+            // initialize our index counter for child nodes
+            var index = 0;
+
+            // get the number of child nodes in our root node
+            // substract -1 to exclude our <g> element
+            var noOfChildNodes = rootChildNodes.length - 1;
+
+            // go through all child elements
+            // (except the last one, which is our <g> element)
+            while (index < noOfChildNodes) {
+                gNode.appendChild(rootChildNodes[0]);
+                index += 1;
+            }
+
+            // define some data to be used in the function internally
+            var data = {
+                svg: svgObject,
+                root: svgObject.node,        // get paper svg
+                state: 'none',
+                stateTarget: null,
+                stateOrigin: null,
+                stateTf: null
+            };
+
+            // create an element with all required properties
+            var item = {
+                "element": gElement,
+                "data": data,
+                "options": options,
+            };
+
+            // create some mouse event handlers for our item
+            // store them globally for optional removal later on
+            item.handlerFunctions = _getHandlerFunctions(item);
+
+            // return our element
+            return item;
+        };
+
+        /**
+         * create some handler functions for our mouse actions
+         * we will take advantace of closures to preserve some data
+         */
+        var _getHandlerFunctions = function getHandlerFunctions(zpdElement) {
+
+            var handleMouseUp = function handleMouseUp (event) {
+
+                if (event.preventDefault) {
+                    event.preventDefault();
+                }
+
+                if (!snapsvgzpd.enable) return;
+
+                event.returnValue = false;
+
+                if (zpdElement.data.state == 'pan' || zpdElement.data.state == 'drag') {
+
+                    // quit pan mode
+                    zpdElement.data.state = '';
+
+                }
+
+            };
+
+            var handleMouseDown = function handleMouseDown (event) {
+
+                if (event.preventDefault) {
+                    event.preventDefault();
+                }
+
+                if (!snapsvgzpd.enable) return;
+
+                event.returnValue = false;
+
+                var g = zpdElement.element.node;
+
+                if (
+                    event.target.tagName == "svg" || !zpdElement.options.drag // Pan anyway when drag is disabled and the user clicked on an element
+                ) {
+                    // Pan mode
+                    zpdElement.data.state = 'pan';
+
+                    zpdElement.data.stateTf = g.getCTM().inverse();
+
+                    zpdElement.data.stateOrigin = _getEventPoint(event, zpdElement.data.svg).matrixTransform(zpdElement.data.stateTf);
+
+                } else {
+
+                    // Drag mode
+                    zpdElement.data.state = 'drag';
+
+                    zpdElement.data.stateTarget = event.target;
+
+                    zpdElement.data.stateTf = g.getCTM().inverse();
+
+                    zpdElement.data.stateOrigin = _getEventPoint(event, zpdElement.data.svg).matrixTransform(zpdElement.data.stateTf);
+
+                }
+            };
+
+            var handleMouseMove = function handleMouseMove (event) {
+
+                if (event.preventDefault) {
+                    event.preventDefault();
+                }
+
+                if (!snapsvgzpd.enable) return;
+
+                event.returnValue = false;
+
+                var g = zpdElement.element.node;
+
+                if (zpdElement.data.state == 'pan' && zpdElement.options.pan) {
+
+                    // Pan mode
+                    var p = _getEventPoint(event, zpdElement.data.svg).matrixTransform(zpdElement.data.stateTf);
+
+                    _setCTM(g, zpdElement.data.stateTf.inverse().translate(p.x - zpdElement.data.stateOrigin.x, p.y - zpdElement.data.stateOrigin.y), zpdElement.options.zoomThreshold);
+
+                } else if (zpdElement.data.state == 'drag' && zpdElement.options.drag) {
+
+                    // Drag mode
+                    var dragPoint = _getEventPoint(event, zpdElement.data.svg).matrixTransform(g.getCTM().inverse());
+
+                    _setCTM(zpdElement.data.stateTarget,
+                            zpdElement.data.root.createSVGMatrix()
+                            .translate(dragPoint.x - zpdElement.data.stateOrigin.x, dragPoint.y - zpdElement.data.stateOrigin.y)
+                            .multiply(g.getCTM().inverse())
+                            .multiply(zpdElement.data.stateTarget.getCTM()),
+                            zpdElement.options.zoomThreshold);
+
+                    zpdElement.data.stateOrigin = dragPoint;
+                }
+            };
+
+            var handleMouseWheel = function handleMouseWheel (event) {
+
+                if (!zpdElement.options.zoom) {
+                    return;
+                }
+
+                if (event.preventDefault) {
+                    event.preventDefault();
+                }
+
+                if (!snapsvgzpd.enable) return;
+
+                event.returnValue = false;
+
+                var delta = 0;
+
+                if (event.wheelDelta) {
+                    delta = event.wheelDelta / 360;  // Chrome/Safari
+                }
+                else {
+                    delta = event.detail / -9;       // Mozilla
+                }
+
+                var z = Math.pow(1 + zpdElement.options.zoomScale, delta);
+
+                var g = zpdElement.element.node;
+
+                var p = _getEventPoint(event, zpdElement.data.svg);
+
+                p = p.matrixTransform(g.getCTM().inverse());
+
+                // Compute new scale matrix in current mouse position
+                var k = zpdElement.data.root.createSVGMatrix().translate(p.x, p.y).scale(z).translate(-p.x, -p.y);
+
+                _setCTM(g, g.getCTM().multiply(k), zpdElement.options.zoomThreshold);
+
+                if (typeof(stateTf) == 'undefined') {
+                    zpdElement.data.stateTf = g.getCTM().inverse();
+                }
+
+                zpdElement.data.stateTf = zpdElement.data.stateTf.multiply(k.inverse());
+            };
+
+            return {
+                "mouseUp": handleMouseUp,
+                "mouseDown": handleMouseDown,
+                "mouseMove": handleMouseMove,
+                "mouseWheel": handleMouseWheel
+            };
+        };
+
+
+        /**
+         * Register handlers
+         * desktop and mobile (?)
+         */
+        var _setupHandlers = function setupHandlers(svgElement, handlerFunctions) {
+
+            // mobile
+            // (?)
+
+            // desktop
+            if ('onmouseup' in document.documentElement) {
+
+                // IE < 9 would need to use the event onmouseup, but they do not support svg anyway..
+                svgElement.addEventListener('mouseup', handlerFunctions.mouseUp, false);
+                svgElement.addEventListener('mousedown', handlerFunctions.mouseDown, false);
+                svgElement.addEventListener('mousemove', handlerFunctions.mouseMove, false);
+
+                if (navigator.userAgent.toLowerCase().indexOf('webkit') >= 0 ||
+                    navigator.userAgent.toLowerCase().indexOf('trident') >= 0) {
+                    svgElement.addEventListener('mousewheel', handlerFunctions.mouseWheel, false); // Chrome/Safari
+                }
+                else {
+                    svgElement.addEventListener('DOMMouseScroll', handlerFunctions.mouseWheel, false); // Others
+                }
+
+            }
+        };
+
+        /**
+         * remove event handlers
+         */
+        var _tearDownHandlers = function tearDownHandlers(svgElement, handlerFunctions) {
+
+            svgElement.removeEventListener('mouseup', handlerFunctions.mouseUp, false);
+            svgElement.removeEventListener('mousedown', handlerFunctions.mouseDown, false);
+            svgElement.removeEventListener('mousemove', handlerFunctions.mouseMove, false);
+
+            if (navigator.userAgent.toLowerCase().indexOf('webkit') >= 0 ||
+                navigator.userAgent.toLowerCase().indexOf('trident') >= 0) {
+                svgElement.removeEventListener('mousewheel', handlerFunctions.mouseWheel, false);
+            }
+            else {
+                svgElement.removeEventListener('DOMMouseScroll', handlerFunctions.mouseWheel, false);
+            }
+        };
+
+        /* our global zpd function */
+        var zpd = function (options, callbackFunc) {
+
+            // get a reference to the current element
+            var self = this;
+
+            // define some custom options
+            var zpdOptions = {
+                pan: true,          // enable or disable panning (default enabled)
+                zoom: true,         // enable or disable zooming (default enabled)
+                drag: false,        // enable or disable dragging (default disabled)
+                zoomScale: 0.2,     // define zoom sensitivity
+                zoomThreshold: null // define zoom threshold
+            };
+
+            // the situation event of zpd, may be init, reinit, destroy, save, origin, toggle
+            var situation,
+                situationState = {
+                    init: 'init',
+                    reinit: 'reinit',
+                    destroy: 'destroy',
+                    save: 'save',
+                    origin: 'origin',
+                    callback: 'callback',
+                    toggle: 'toggle'
+                };
+
+            var zpdElement = null;
+
+            // it is also possible to only specify a callback function without any options
+            if (typeof options === 'function') {
+                callbackFunc = options;
+                situation = situationState.callback;
+            }
+
+            // check if element was already initialized
+            if (snapsvgzpd.dataStore.hasOwnProperty(self.id)) {
+
+                // return existing element
+                zpdElement =  snapsvgzpd.dataStore[self.id];
+
+                // adapt the stored options, with the options passed in
+                if (typeof options === 'object') {
+                    for (var prop in options) {
+                        zpdElement.options[prop] = options[prop];
+                    }
+                    situation = situationState.reinit;
+                } else if (typeof options === 'string') {
+                    situation = options;
+                }
+            }
+            else {
+
+                // adapt the default options
+                if (typeof options === 'object') {
+                    for (var prop2 in options) {
+                        zpdOptions[prop2] = options[prop2];
+                    }
+                    situation = situationState.init;
+                } else if (typeof options === 'string') {
+                    situation = options;
+                }
+
+                // initialize a new element and save it to our global storage
+                zpdElement = _initZpdElement(self, zpdOptions);
+
+                // setup the handlers for our svg-canvas
+                _setupHandlers(self.node, zpdElement.handlerFunctions);
+
+                snapsvgzpd.dataStore[self.id] = zpdElement;
+            }
+
+            switch (situation) {
+
+                case situationState.init:
+                case situationState.reinit:
+                case situationState.callback:
+
+                    // callback
+                    if (callbackFunc) {
+                        callbackFunc(null, zpdElement);
+                    }
+
+                    return;
+
+                case situationState.destroy:
+
+                    // remove event handlers
+                    _tearDownHandlers(self.node, zpdElement.handlerFunctions);
+
+                    // remove our custom <g> element
+                    _removeNodeKeepChildren(self.node.firstChild);
+
+                    // remove the object from our internal storage
+                    delete snapsvgzpd.dataStore[self.id];
+
+                    // callback
+                    if (callbackFunc) {
+                        callbackFunc(null, zpdElement);
+                    }
+
+                    return; // exit all
+
+                case situationState.save:
+
+                    var g = document.getElementById(snapsvgzpd.uniqueIdPrefix + self.id);
+
+                    var returnValue = g.getCTM();
+
+                    // callback
+                    if (callbackFunc) {
+                        callbackFunc(null, returnValue);
+                    }
+
+                    return returnValue;
+
+                case situationState.origin:
+
+                    // back to origin location
+                    self.zoomTo(1, 1000);
+
+                    // callback
+                    if (callbackFunc) {
+                        callbackFunc(null, zpdElement);
+                    }
+
+                    return;
+
+                case situationState.toggle:
+
+                    // toggle enabled
+                    snapsvgzpd.enable = !snapsvgzpd.enable;
+
+                    // callback
+                    if (callbackFunc) {
+                        callbackFunc(null, snapsvgzpd.enable);
+                    }
+
+                    return;
+            }
+        };
+
+
+
+        /**
+         * zoom element to a certain zoom factor
+         */
+        var zoomTo = function (zoom, interval, ease, callbackFunction) {
+
+            if (zoom < 0 || typeof zoom !== 'number') {
+                console.error('zoomTo(arg) should be a number and greater than 0');
+                return;
+            }
+
+            if (typeof interval !== 'number') {
+                interval = 3000;
+            }
+
+            var self = this;
+
+            // check if we have this element in our zpd data storage
+            if (snapsvgzpd.dataStore.hasOwnProperty(self.id)) {
+
+                // get a reference to the element
+                var zpdElement = snapsvgzpd.dataStore[self.id].element;
+
+                var currentTransformMatrix = zpdElement.node.getTransformToElement(rootSvgObject);
+                var currentZoom = currentTransformMatrix.a;
+                var originX = currentTransformMatrix.e;
+                var originY = currentTransformMatrix.f;
+
+                var boundingBox = zpdElement.getBBox();
+                var deltaX = parseFloat(boundingBox.width) / 2.0;
+                var deltaY = parseFloat(boundingBox.height) / 2.0;
+
+                Snap.animate(currentZoom, zoom, function (value) {
+
+                    // calculate difference of zooming value to initial zoom
+                    var deltaZoom = value / currentZoom;
+
+                    if (value !== currentZoom) {
+
+                        // calculate new translation
+                        currentTransformMatrix.e = originX - ((deltaX * deltaZoom - deltaX));
+                        currentTransformMatrix.f = originY - ((deltaY * deltaZoom - deltaY));
+
+                        // add new scaling
+                        currentTransformMatrix.a = value;
+                        currentTransformMatrix.d = value;
+
+                        // apply transformation to our element
+                        zpdElement.node.setAttribute('transform', _getSvgMatrixAsString(currentTransformMatrix));
+                    }
+
+                }, interval, ease, callbackFunction);
+            }
+        };
+
+
+        /**
+         * move the element to a certain position
+         */
+        var panTo = function (x, y, interval, ease, cb) {
+
+            // get a reference to the current element
+            var self = this;
+
+            // check if we have this element in our zpd data storage
+            if (snapsvgzpd.dataStore.hasOwnProperty(self.id)) {
+
+                var zpdElement = snapsvgzpd.dataStore[self.id].element;
+
+                var gMatrix = zpdElement.node.getCTM(),
+                    matrixX = _increaseDecreaseOrNumber(gMatrix.e, x),
+                    matrixY = _increaseDecreaseOrNumber(gMatrix.f, y),
+                    matrixString = "matrix(" + gMatrix.a + "," + gMatrix.b + "," + gMatrix.c + "," + gMatrix.d + "," + matrixX + "," + matrixY + ")";
+
+                // dataStore[me.id].transform(matrixString); // load <g> transform matrix
+                zpdElement.animate({ transform: matrixString }, interval || 10, ease || null, function () {
+                    if (cb) {
+                        cb(null, zpdElement);
+                    }
+                });
+
+            }
+        };
+
+        /**
+         * rotate the element to a certain rotation
+         */
+        var rotate = function (a, x, y, interval, ease, cb) {
+            // get a reference to the current element
+            var self = this;
+
+            // check if we have this element in our zpd data storage
+            if (snapsvgzpd.dataStore.hasOwnProperty(self.id)) {
+
+                var zpdElement = snapsvgzpd.dataStore[self.id].element;
+
+                var gMatrix = zpdElement.node.getCTM(),
+                    matrixString = "matrix(" + gMatrix.a + "," + gMatrix.b + "," + gMatrix.c + "," + gMatrix.d + "," + gMatrix.e + "," + gMatrix.f + ")";
+
+                if (!x || typeof x !== 'number') {
+                    x = self.node.offsetWidth / 2;
+                }
+                if (!y || typeof y !== 'number') {
+                    y = self.node.offsetHeight / 2;
+                }
+
+                // dataStore[me.id].transform(matrixString); // load <g> transform matrix
+                zpdElement.animate({ transform: new Snap.Matrix(gMatrix).rotate(a, x, y) }, interval || 10, ease || null, function () {
+                    if (cb) {
+                        cb(null, zpdElement);
+                    }
+                });
+
+            }
+        };
+
+        Paper.prototype.zpd = zpd;
+        Paper.prototype.zoomTo = zoomTo;
+        Paper.prototype.panTo = panTo;
+        Paper.prototype.rotate = rotate;
+
+        /** More Features to add (click event) help me if you can **/
+        // Element.prototype.panToCenter = panToCenter; // arg (ease, interval, cb)
+
+
+        /** UI for zpdr **/
+
+    });
+
+})(Snap);
+
+define("snap.svg.zpd", [],function(){});
+
+/*!
+ * @overview es6-promise - a tiny implementation of Promises/A+.
+ * @copyright Copyright (c) 2014 Yehuda Katz, Tom Dale, Stefan Penner and contributors (Conversion to ES6 API by Jake Archibald)
+ * @license   Licensed under MIT license
+ *            See https://raw.githubusercontent.com/stefanpenner/es6-promise/master/LICENSE
+ * @version   4.0.5
+ */
+
+(function (global, factory) {
+    typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
+    typeof define === 'function' && define.amd ? define('es6-promise',factory) :
+    (global.ES6Promise = factory());
+}(this, (function () { 'use strict';
+
+function objectOrFunction(x) {
+  return typeof x === 'function' || typeof x === 'object' && x !== null;
+}
+
+function isFunction(x) {
+  return typeof x === 'function';
+}
+
+var _isArray = undefined;
+if (!Array.isArray) {
+  _isArray = function (x) {
+    return Object.prototype.toString.call(x) === '[object Array]';
+  };
+} else {
+  _isArray = Array.isArray;
+}
+
+var isArray = _isArray;
+
+var len = 0;
+var vertxNext = undefined;
+var customSchedulerFn = undefined;
+
+var asap = function asap(callback, arg) {
+  queue[len] = callback;
+  queue[len + 1] = arg;
+  len += 2;
+  if (len === 2) {
+    // If len is 2, that means that we need to schedule an async flush.
+    // If additional callbacks are queued before the queue is flushed, they
+    // will be processed by this flush that we are scheduling.
+    if (customSchedulerFn) {
+      customSchedulerFn(flush);
+    } else {
+      scheduleFlush();
+    }
+  }
+};
+
+function setScheduler(scheduleFn) {
+  customSchedulerFn = scheduleFn;
+}
+
+function setAsap(asapFn) {
+  asap = asapFn;
+}
+
+var browserWindow = typeof window !== 'undefined' ? window : undefined;
+var browserGlobal = browserWindow || {};
+var BrowserMutationObserver = browserGlobal.MutationObserver || browserGlobal.WebKitMutationObserver;
+var isNode = typeof self === 'undefined' && typeof process !== 'undefined' && ({}).toString.call(process) === '[object process]';
+
+// test for web worker but not in IE10
+var isWorker = typeof Uint8ClampedArray !== 'undefined' && typeof importScripts !== 'undefined' && typeof MessageChannel !== 'undefined';
+
+// node
+function useNextTick() {
+  // node version 0.10.x displays a deprecation warning when nextTick is used recursively
+  // see https://github.com/cujojs/when/issues/410 for details
+  return function () {
+    return process.nextTick(flush);
+  };
+}
+
+// vertx
+function useVertxTimer() {
+  if (typeof vertxNext !== 'undefined') {
+    return function () {
+      vertxNext(flush);
+    };
+  }
+
+  return useSetTimeout();
+}
+
+function useMutationObserver() {
+  var iterations = 0;
+  var observer = new BrowserMutationObserver(flush);
+  var node = document.createTextNode('');
+  observer.observe(node, { characterData: true });
+
+  return function () {
+    node.data = iterations = ++iterations % 2;
+  };
+}
+
+// web worker
+function useMessageChannel() {
+  var channel = new MessageChannel();
+  channel.port1.onmessage = flush;
+  return function () {
+    return channel.port2.postMessage(0);
+  };
+}
+
+function useSetTimeout() {
+  // Store setTimeout reference so es6-promise will be unaffected by
+  // other code modifying setTimeout (like sinon.useFakeTimers())
+  var globalSetTimeout = setTimeout;
+  return function () {
+    return globalSetTimeout(flush, 1);
+  };
+}
+
+var queue = new Array(1000);
+function flush() {
+  for (var i = 0; i < len; i += 2) {
+    var callback = queue[i];
+    var arg = queue[i + 1];
+
+    callback(arg);
+
+    queue[i] = undefined;
+    queue[i + 1] = undefined;
+  }
+
+  len = 0;
+}
+
+function attemptVertx() {
+  try {
+    var r = require;
+    var vertx = r('vertx');
+    vertxNext = vertx.runOnLoop || vertx.runOnContext;
+    return useVertxTimer();
+  } catch (e) {
+    return useSetTimeout();
+  }
+}
+
+var scheduleFlush = undefined;
+// Decide what async method to use to triggering processing of queued callbacks:
+if (isNode) {
+  scheduleFlush = useNextTick();
+} else if (BrowserMutationObserver) {
+  scheduleFlush = useMutationObserver();
+} else if (isWorker) {
+  scheduleFlush = useMessageChannel();
+} else if (browserWindow === undefined && typeof require === 'function') {
+  scheduleFlush = attemptVertx();
+} else {
+  scheduleFlush = useSetTimeout();
+}
+
+function then(onFulfillment, onRejection) {
+  var _arguments = arguments;
+
+  var parent = this;
+
+  var child = new this.constructor(noop);
+
+  if (child[PROMISE_ID] === undefined) {
+    makePromise(child);
+  }
+
+  var _state = parent._state;
+
+  if (_state) {
+    (function () {
+      var callback = _arguments[_state - 1];
+      asap(function () {
+        return invokeCallback(_state, child, callback, parent._result);
+      });
+    })();
+  } else {
+    subscribe(parent, child, onFulfillment, onRejection);
+  }
+
+  return child;
+}
+
+/**
+  `Promise.resolve` returns a promise that will become resolved with the
+  passed `value`. It is shorthand for the following:
+
+  ```javascript
+  let promise = new Promise(function(resolve, reject){
+    resolve(1);
+  });
+
+  promise.then(function(value){
+    // value === 1
+  });
+  ```
+
+  Instead of writing the above, your code now simply becomes the following:
+
+  ```javascript
+  let promise = Promise.resolve(1);
+
+  promise.then(function(value){
+    // value === 1
+  });
+  ```
+
+  @method resolve
+  @static
+  @param {Any} value value that the returned promise will be resolved with
+  Useful for tooling.
+  @return {Promise} a promise that will become fulfilled with the given
+  `value`
+*/
+function resolve(object) {
+  /*jshint validthis:true */
+  var Constructor = this;
+
+  if (object && typeof object === 'object' && object.constructor === Constructor) {
+    return object;
+  }
+
+  var promise = new Constructor(noop);
+  _resolve(promise, object);
+  return promise;
+}
+
+var PROMISE_ID = Math.random().toString(36).substring(16);
+
+function noop() {}
+
+var PENDING = void 0;
+var FULFILLED = 1;
+var REJECTED = 2;
+
+var GET_THEN_ERROR = new ErrorObject();
+
+function selfFulfillment() {
+  return new TypeError("You cannot resolve a promise with itself");
+}
+
+function cannotReturnOwn() {
+  return new TypeError('A promises callback cannot return that same promise.');
+}
+
+function getThen(promise) {
+  try {
+    return promise.then;
+  } catch (error) {
+    GET_THEN_ERROR.error = error;
+    return GET_THEN_ERROR;
+  }
+}
+
+function tryThen(then, value, fulfillmentHandler, rejectionHandler) {
+  try {
+    then.call(value, fulfillmentHandler, rejectionHandler);
+  } catch (e) {
+    return e;
+  }
+}
+
+function handleForeignThenable(promise, thenable, then) {
+  asap(function (promise) {
+    var sealed = false;
+    var error = tryThen(then, thenable, function (value) {
+      if (sealed) {
+        return;
+      }
+      sealed = true;
+      if (thenable !== value) {
+        _resolve(promise, value);
+      } else {
+        fulfill(promise, value);
+      }
+    }, function (reason) {
+      if (sealed) {
+        return;
+      }
+      sealed = true;
+
+      _reject(promise, reason);
+    }, 'Settle: ' + (promise._label || ' unknown promise'));
+
+    if (!sealed && error) {
+      sealed = true;
+      _reject(promise, error);
+    }
+  }, promise);
+}
+
+function handleOwnThenable(promise, thenable) {
+  if (thenable._state === FULFILLED) {
+    fulfill(promise, thenable._result);
+  } else if (thenable._state === REJECTED) {
+    _reject(promise, thenable._result);
+  } else {
+    subscribe(thenable, undefined, function (value) {
+      return _resolve(promise, value);
+    }, function (reason) {
+      return _reject(promise, reason);
+    });
+  }
+}
+
+function handleMaybeThenable(promise, maybeThenable, then$$) {
+  if (maybeThenable.constructor === promise.constructor && then$$ === then && maybeThenable.constructor.resolve === resolve) {
+    handleOwnThenable(promise, maybeThenable);
+  } else {
+    if (then$$ === GET_THEN_ERROR) {
+      _reject(promise, GET_THEN_ERROR.error);
+    } else if (then$$ === undefined) {
+      fulfill(promise, maybeThenable);
+    } else if (isFunction(then$$)) {
+      handleForeignThenable(promise, maybeThenable, then$$);
+    } else {
+      fulfill(promise, maybeThenable);
+    }
+  }
+}
+
+function _resolve(promise, value) {
+  if (promise === value) {
+    _reject(promise, selfFulfillment());
+  } else if (objectOrFunction(value)) {
+    handleMaybeThenable(promise, value, getThen(value));
+  } else {
+    fulfill(promise, value);
+  }
+}
+
+function publishRejection(promise) {
+  if (promise._onerror) {
+    promise._onerror(promise._result);
+  }
+
+  publish(promise);
+}
+
+function fulfill(promise, value) {
+  if (promise._state !== PENDING) {
+    return;
+  }
+
+  promise._result = value;
+  promise._state = FULFILLED;
+
+  if (promise._subscribers.length !== 0) {
+    asap(publish, promise);
+  }
+}
+
+function _reject(promise, reason) {
+  if (promise._state !== PENDING) {
+    return;
+  }
+  promise._state = REJECTED;
+  promise._result = reason;
+
+  asap(publishRejection, promise);
+}
+
+function subscribe(parent, child, onFulfillment, onRejection) {
+  var _subscribers = parent._subscribers;
+  var length = _subscribers.length;
+
+  parent._onerror = null;
+
+  _subscribers[length] = child;
+  _subscribers[length + FULFILLED] = onFulfillment;
+  _subscribers[length + REJECTED] = onRejection;
+
+  if (length === 0 && parent._state) {
+    asap(publish, parent);
+  }
+}
+
+function publish(promise) {
+  var subscribers = promise._subscribers;
+  var settled = promise._state;
+
+  if (subscribers.length === 0) {
+    return;
+  }
+
+  var child = undefined,
+      callback = undefined,
+      detail = promise._result;
+
+  for (var i = 0; i < subscribers.length; i += 3) {
+    child = subscribers[i];
+    callback = subscribers[i + settled];
+
+    if (child) {
+      invokeCallback(settled, child, callback, detail);
+    } else {
+      callback(detail);
+    }
+  }
+
+  promise._subscribers.length = 0;
+}
+
+function ErrorObject() {
+  this.error = null;
+}
+
+var TRY_CATCH_ERROR = new ErrorObject();
+
+function tryCatch(callback, detail) {
+  try {
+    return callback(detail);
+  } catch (e) {
+    TRY_CATCH_ERROR.error = e;
+    return TRY_CATCH_ERROR;
+  }
+}
+
+function invokeCallback(settled, promise, callback, detail) {
+  var hasCallback = isFunction(callback),
+      value = undefined,
+      error = undefined,
+      succeeded = undefined,
+      failed = undefined;
+
+  if (hasCallback) {
+    value = tryCatch(callback, detail);
+
+    if (value === TRY_CATCH_ERROR) {
+      failed = true;
+      error = value.error;
+      value = null;
+    } else {
+      succeeded = true;
+    }
+
+    if (promise === value) {
+      _reject(promise, cannotReturnOwn());
+      return;
+    }
+  } else {
+    value = detail;
+    succeeded = true;
+  }
+
+  if (promise._state !== PENDING) {
+    // noop
+  } else if (hasCallback && succeeded) {
+      _resolve(promise, value);
+    } else if (failed) {
+      _reject(promise, error);
+    } else if (settled === FULFILLED) {
+      fulfill(promise, value);
+    } else if (settled === REJECTED) {
+      _reject(promise, value);
+    }
+}
+
+function initializePromise(promise, resolver) {
+  try {
+    resolver(function resolvePromise(value) {
+      _resolve(promise, value);
+    }, function rejectPromise(reason) {
+      _reject(promise, reason);
+    });
+  } catch (e) {
+    _reject(promise, e);
+  }
+}
+
+var id = 0;
+function nextId() {
+  return id++;
+}
+
+function makePromise(promise) {
+  promise[PROMISE_ID] = id++;
+  promise._state = undefined;
+  promise._result = undefined;
+  promise._subscribers = [];
+}
+
+function Enumerator(Constructor, input) {
+  this._instanceConstructor = Constructor;
+  this.promise = new Constructor(noop);
+
+  if (!this.promise[PROMISE_ID]) {
+    makePromise(this.promise);
+  }
+
+  if (isArray(input)) {
+    this._input = input;
+    this.length = input.length;
+    this._remaining = input.length;
+
+    this._result = new Array(this.length);
+
+    if (this.length === 0) {
+      fulfill(this.promise, this._result);
+    } else {
+      this.length = this.length || 0;
+      this._enumerate();
+      if (this._remaining === 0) {
+        fulfill(this.promise, this._result);
+      }
+    }
+  } else {
+    _reject(this.promise, validationError());
+  }
+}
+
+function validationError() {
+  return new Error('Array Methods must be provided an Array');
+};
+
+Enumerator.prototype._enumerate = function () {
+  var length = this.length;
+  var _input = this._input;
+
+  for (var i = 0; this._state === PENDING && i < length; i++) {
+    this._eachEntry(_input[i], i);
+  }
+};
+
+Enumerator.prototype._eachEntry = function (entry, i) {
+  var c = this._instanceConstructor;
+  var resolve$$ = c.resolve;
+
+  if (resolve$$ === resolve) {
+    var _then = getThen(entry);
+
+    if (_then === then && entry._state !== PENDING) {
+      this._settledAt(entry._state, i, entry._result);
+    } else if (typeof _then !== 'function') {
+      this._remaining--;
+      this._result[i] = entry;
+    } else if (c === Promise) {
+      var promise = new c(noop);
+      handleMaybeThenable(promise, entry, _then);
+      this._willSettleAt(promise, i);
+    } else {
+      this._willSettleAt(new c(function (resolve$$) {
+        return resolve$$(entry);
+      }), i);
+    }
+  } else {
+    this._willSettleAt(resolve$$(entry), i);
+  }
+};
+
+Enumerator.prototype._settledAt = function (state, i, value) {
+  var promise = this.promise;
+
+  if (promise._state === PENDING) {
+    this._remaining--;
+
+    if (state === REJECTED) {
+      _reject(promise, value);
+    } else {
+      this._result[i] = value;
+    }
+  }
+
+  if (this._remaining === 0) {
+    fulfill(promise, this._result);
+  }
+};
+
+Enumerator.prototype._willSettleAt = function (promise, i) {
+  var enumerator = this;
+
+  subscribe(promise, undefined, function (value) {
+    return enumerator._settledAt(FULFILLED, i, value);
+  }, function (reason) {
+    return enumerator._settledAt(REJECTED, i, reason);
+  });
+};
+
+/**
+  `Promise.all` accepts an array of promises, and returns a new promise which
+  is fulfilled with an array of fulfillment values for the passed promises, or
+  rejected with the reason of the first passed promise to be rejected. It casts all
+  elements of the passed iterable to promises as it runs this algorithm.
+
+  Example:
+
+  ```javascript
+  let promise1 = resolve(1);
+  let promise2 = resolve(2);
+  let promise3 = resolve(3);
+  let promises = [ promise1, promise2, promise3 ];
+
+  Promise.all(promises).then(function(array){
+    // The array here would be [ 1, 2, 3 ];
+  });
+  ```
+
+  If any of the `promises` given to `all` are rejected, the first promise
+  that is rejected will be given as an argument to the returned promises's
+  rejection handler. For example:
+
+  Example:
+
+  ```javascript
+  let promise1 = resolve(1);
+  let promise2 = reject(new Error("2"));
+  let promise3 = reject(new Error("3"));
+  let promises = [ promise1, promise2, promise3 ];
+
+  Promise.all(promises).then(function(array){
+    // Code here never runs because there are rejected promises!
+  }, function(error) {
+    // error.message === "2"
+  });
+  ```
+
+  @method all
+  @static
+  @param {Array} entries array of promises
+  @param {String} label optional string for labeling the promise.
+  Useful for tooling.
+  @return {Promise} promise that is fulfilled when all `promises` have been
+  fulfilled, or rejected if any of them become rejected.
+  @static
+*/
+function all(entries) {
+  return new Enumerator(this, entries).promise;
+}
+
+/**
+  `Promise.race` returns a new promise which is settled in the same way as the
+  first passed promise to settle.
+
+  Example:
+
+  ```javascript
+  let promise1 = new Promise(function(resolve, reject){
+    setTimeout(function(){
+      resolve('promise 1');
+    }, 200);
+  });
+
+  let promise2 = new Promise(function(resolve, reject){
+    setTimeout(function(){
+      resolve('promise 2');
+    }, 100);
+  });
+
+  Promise.race([promise1, promise2]).then(function(result){
+    // result === 'promise 2' because it was resolved before promise1
+    // was resolved.
+  });
+  ```
+
+  `Promise.race` is deterministic in that only the state of the first
+  settled promise matters. For example, even if other promises given to the
+  `promises` array argument are resolved, but the first settled promise has
+  become rejected before the other promises became fulfilled, the returned
+  promise will become rejected:
+
+  ```javascript
+  let promise1 = new Promise(function(resolve, reject){
+    setTimeout(function(){
+      resolve('promise 1');
+    }, 200);
+  });
+
+  let promise2 = new Promise(function(resolve, reject){
+    setTimeout(function(){
+      reject(new Error('promise 2'));
+    }, 100);
+  });
+
+  Promise.race([promise1, promise2]).then(function(result){
+    // Code here never runs
+  }, function(reason){
+    // reason.message === 'promise 2' because promise 2 became rejected before
+    // promise 1 became fulfilled
+  });
+  ```
+
+  An example real-world use case is implementing timeouts:
+
+  ```javascript
+  Promise.race([ajax('foo.json'), timeout(5000)])
+  ```
+
+  @method race
+  @static
+  @param {Array} promises array of promises to observe
+  Useful for tooling.
+  @return {Promise} a promise which settles in the same way as the first passed
+  promise to settle.
+*/
+function race(entries) {
+  /*jshint validthis:true */
+  var Constructor = this;
+
+  if (!isArray(entries)) {
+    return new Constructor(function (_, reject) {
+      return reject(new TypeError('You must pass an array to race.'));
+    });
+  } else {
+    return new Constructor(function (resolve, reject) {
+      var length = entries.length;
+      for (var i = 0; i < length; i++) {
+        Constructor.resolve(entries[i]).then(resolve, reject);
+      }
+    });
+  }
+}
+
+/**
+  `Promise.reject` returns a promise rejected with the passed `reason`.
+  It is shorthand for the following:
+
+  ```javascript
+  let promise = new Promise(function(resolve, reject){
+    reject(new Error('WHOOPS'));
+  });
+
+  promise.then(function(value){
+    // Code here doesn't run because the promise is rejected!
+  }, function(reason){
+    // reason.message === 'WHOOPS'
+  });
+  ```
+
+  Instead of writing the above, your code now simply becomes the following:
+
+  ```javascript
+  let promise = Promise.reject(new Error('WHOOPS'));
+
+  promise.then(function(value){
+    // Code here doesn't run because the promise is rejected!
+  }, function(reason){
+    // reason.message === 'WHOOPS'
+  });
+  ```
+
+  @method reject
+  @static
+  @param {Any} reason value that the returned promise will be rejected with.
+  Useful for tooling.
+  @return {Promise} a promise rejected with the given `reason`.
+*/
+function reject(reason) {
+  /*jshint validthis:true */
+  var Constructor = this;
+  var promise = new Constructor(noop);
+  _reject(promise, reason);
+  return promise;
+}
+
+function needsResolver() {
+  throw new TypeError('You must pass a resolver function as the first argument to the promise constructor');
+}
+
+function needsNew() {
+  throw new TypeError("Failed to construct 'Promise': Please use the 'new' operator, this object constructor cannot be called as a function.");
+}
+
+/**
+  Promise objects represent the eventual result of an asynchronous operation. The
+  primary way of interacting with a promise is through its `then` method, which
+  registers callbacks to receive either a promise's eventual value or the reason
+  why the promise cannot be fulfilled.
+
+  Terminology
+  -----------
+
+  - `promise` is an object or function with a `then` method whose behavior conforms to this specification.
+  - `thenable` is an object or function that defines a `then` method.
+  - `value` is any legal JavaScript value (including undefined, a thenable, or a promise).
+  - `exception` is a value that is thrown using the throw statement.
+  - `reason` is a value that indicates why a promise was rejected.
+  - `settled` the final resting state of a promise, fulfilled or rejected.
+
+  A promise can be in one of three states: pending, fulfilled, or rejected.
+
+  Promises that are fulfilled have a fulfillment value and are in the fulfilled
+  state.  Promises that are rejected have a rejection reason and are in the
+  rejected state.  A fulfillment value is never a thenable.
+
+  Promises can also be said to *resolve* a value.  If this value is also a
+  promise, then the original promise's settled state will match the value's
+  settled state.  So a promise that *resolves* a promise that rejects will
+  itself reject, and a promise that *resolves* a promise that fulfills will
+  itself fulfill.
+
+
+  Basic Usage:
+  ------------
+
+  ```js
+  let promise = new Promise(function(resolve, reject) {
+    // on success
+    resolve(value);
+
+    // on failure
+    reject(reason);
+  });
+
+  promise.then(function(value) {
+    // on fulfillment
+  }, function(reason) {
+    // on rejection
+  });
+  ```
+
+  Advanced Usage:
+  ---------------
+
+  Promises shine when abstracting away asynchronous interactions such as
+  `XMLHttpRequest`s.
+
+  ```js
+  function getJSON(url) {
+    return new Promise(function(resolve, reject){
+      let xhr = new XMLHttpRequest();
+
+      xhr.open('GET', url);
+      xhr.onreadystatechange = handler;
+      xhr.responseType = 'json';
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.send();
+
+      function handler() {
+        if (this.readyState === this.DONE) {
+          if (this.status === 200) {
+            resolve(this.response);
+          } else {
+            reject(new Error('getJSON: `' + url + '` failed with status: [' + this.status + ']'));
+          }
+        }
+      };
+    });
+  }
+
+  getJSON('/posts.json').then(function(json) {
+    // on fulfillment
+  }, function(reason) {
+    // on rejection
+  });
+  ```
+
+  Unlike callbacks, promises are great composable primitives.
+
+  ```js
+  Promise.all([
+    getJSON('/posts'),
+    getJSON('/comments')
+  ]).then(function(values){
+    values[0] // => postsJSON
+    values[1] // => commentsJSON
+
+    return values;
+  });
+  ```
+
+  @class Promise
+  @param {function} resolver
+  Useful for tooling.
+  @constructor
+*/
+function Promise(resolver) {
+  this[PROMISE_ID] = nextId();
+  this._result = this._state = undefined;
+  this._subscribers = [];
+
+  if (noop !== resolver) {
+    typeof resolver !== 'function' && needsResolver();
+    this instanceof Promise ? initializePromise(this, resolver) : needsNew();
+  }
+}
+
+Promise.all = all;
+Promise.race = race;
+Promise.resolve = resolve;
+Promise.reject = reject;
+Promise._setScheduler = setScheduler;
+Promise._setAsap = setAsap;
+Promise._asap = asap;
+
+Promise.prototype = {
+  constructor: Promise,
+
+  /**
+    The primary way of interacting with a promise is through its `then` method,
+    which registers callbacks to receive either a promise's eventual value or the
+    reason why the promise cannot be fulfilled.
+  
+    ```js
+    findUser().then(function(user){
+      // user is available
+    }, function(reason){
+      // user is unavailable, and you are given the reason why
+    });
+    ```
+  
+    Chaining
+    --------
+  
+    The return value of `then` is itself a promise.  This second, 'downstream'
+    promise is resolved with the return value of the first promise's fulfillment
+    or rejection handler, or rejected if the handler throws an exception.
+  
+    ```js
+    findUser().then(function (user) {
+      return user.name;
+    }, function (reason) {
+      return 'default name';
+    }).then(function (userName) {
+      // If `findUser` fulfilled, `userName` will be the user's name, otherwise it
+      // will be `'default name'`
+    });
+  
+    findUser().then(function (user) {
+      throw new Error('Found user, but still unhappy');
+    }, function (reason) {
+      throw new Error('`findUser` rejected and we're unhappy');
+    }).then(function (value) {
+      // never reached
+    }, function (reason) {
+      // if `findUser` fulfilled, `reason` will be 'Found user, but still unhappy'.
+      // If `findUser` rejected, `reason` will be '`findUser` rejected and we're unhappy'.
+    });
+    ```
+    If the downstream promise does not specify a rejection handler, rejection reasons will be propagated further downstream.
+  
+    ```js
+    findUser().then(function (user) {
+      throw new PedagogicalException('Upstream error');
+    }).then(function (value) {
+      // never reached
+    }).then(function (value) {
+      // never reached
+    }, function (reason) {
+      // The `PedgagocialException` is propagated all the way down to here
+    });
+    ```
+  
+    Assimilation
+    ------------
+  
+    Sometimes the value you want to propagate to a downstream promise can only be
+    retrieved asynchronously. This can be achieved by returning a promise in the
+    fulfillment or rejection handler. The downstream promise will then be pending
+    until the returned promise is settled. This is called *assimilation*.
+  
+    ```js
+    findUser().then(function (user) {
+      return findCommentsByAuthor(user);
+    }).then(function (comments) {
+      // The user's comments are now available
+    });
+    ```
+  
+    If the assimliated promise rejects, then the downstream promise will also reject.
+  
+    ```js
+    findUser().then(function (user) {
+      return findCommentsByAuthor(user);
+    }).then(function (comments) {
+      // If `findCommentsByAuthor` fulfills, we'll have the value here
+    }, function (reason) {
+      // If `findCommentsByAuthor` rejects, we'll have the reason here
+    });
+    ```
+  
+    Simple Example
+    --------------
+  
+    Synchronous Example
+  
+    ```javascript
+    let result;
+  
+    try {
+      result = findResult();
+      // success
+    } catch(reason) {
+      // failure
+    }
+    ```
+  
+    Errback Example
+  
+    ```js
+    findResult(function(result, err){
+      if (err) {
+        // failure
+      } else {
+        // success
+      }
+    });
+    ```
+  
+    Promise Example;
+  
+    ```javascript
+    findResult().then(function(result){
+      // success
+    }, function(reason){
+      // failure
+    });
+    ```
+  
+    Advanced Example
+    --------------
+  
+    Synchronous Example
+  
+    ```javascript
+    let author, books;
+  
+    try {
+      author = findAuthor();
+      books  = findBooksByAuthor(author);
+      // success
+    } catch(reason) {
+      // failure
+    }
+    ```
+  
+    Errback Example
+  
+    ```js
+  
+    function foundBooks(books) {
+  
+    }
+  
+    function failure(reason) {
+  
+    }
+  
+    findAuthor(function(author, err){
+      if (err) {
+        failure(err);
+        // failure
+      } else {
+        try {
+          findBoooksByAuthor(author, function(books, err) {
+            if (err) {
+              failure(err);
+            } else {
+              try {
+                foundBooks(books);
+              } catch(reason) {
+                failure(reason);
+              }
+            }
+          });
+        } catch(error) {
+          failure(err);
+        }
+        // success
+      }
+    });
+    ```
+  
+    Promise Example;
+  
+    ```javascript
+    findAuthor().
+      then(findBooksByAuthor).
+      then(function(books){
+        // found books
+    }).catch(function(reason){
+      // something went wrong
+    });
+    ```
+  
+    @method then
+    @param {Function} onFulfilled
+    @param {Function} onRejected
+    Useful for tooling.
+    @return {Promise}
+  */
+  then: then,
+
+  /**
+    `catch` is simply sugar for `then(undefined, onRejection)` which makes it the same
+    as the catch block of a try/catch statement.
+  
+    ```js
+    function findAuthor(){
+      throw new Error('couldn't find that author');
+    }
+  
+    // synchronous
+    try {
+      findAuthor();
+    } catch(reason) {
+      // something went wrong
+    }
+  
+    // async with promises
+    findAuthor().catch(function(reason){
+      // something went wrong
+    });
+    ```
+  
+    @method catch
+    @param {Function} onRejection
+    Useful for tooling.
+    @return {Promise}
+  */
+  'catch': function _catch(onRejection) {
+    return this.then(null, onRejection);
+  }
+};
+
+function polyfill() {
+    var local = undefined;
+
+    if (typeof global !== 'undefined') {
+        local = global;
+    } else if (typeof self !== 'undefined') {
+        local = self;
+    } else {
+        try {
+            local = Function('return this')();
+        } catch (e) {
+            throw new Error('polyfill failed because global object is unavailable in this environment');
+        }
+    }
+
+    var P = local.Promise;
+
+    if (P) {
+        var promiseToString = null;
+        try {
+            promiseToString = Object.prototype.toString.call(P.resolve());
+        } catch (e) {
+            // silently ignored
+        }
+
+        if (promiseToString === '[object Promise]' && !P.cast) {
+            return;
+        }
+    }
+
+    local.Promise = Promise;
+}
+
+// Strange compat..
+Promise.polyfill = polyfill;
+Promise.Promise = Promise;
+
+return Promise;
+
+})));
+//# sourceMappingURL=es6-promise.map
 define('text',{});
 define('aurelia-templating-resources/aurelia-templating-resources',['exports', './compose', './if', './with', './repeat', './show', './hide', './sanitize-html', './replaceable', './focus', 'aurelia-templating', './css-resource', './html-sanitizer', './attr-binding-behavior', './binding-mode-behaviors', './throttle-binding-behavior', './debounce-binding-behavior', './signal-binding-behavior', './binding-signaler', './update-trigger-binding-behavior', './abstract-repeater', './repeat-strategy-locator', './html-resource-plugin', './null-repeat-strategy', './array-repeat-strategy', './map-repeat-strategy', './set-repeat-strategy', './number-repeat-strategy', './repeat-utilities', './analyze-view-factory', './aurelia-hide-style'], function (exports, _compose, _if, _with, _repeat, _show, _hide, _sanitizeHtml, _replaceable, _focus, _aureliaTemplating, _cssResource, _htmlSanitizer, _attrBindingBehavior, _bindingModeBehaviors, _throttleBindingBehavior, _debounceBindingBehavior, _signalBindingBehavior, _bindingSignaler, _updateTriggerBindingBehavior, _abstractRepeater, _repeatStrategyLocator, _htmlResourcePlugin, _nullRepeatStrategy, _arrayRepeatStrategy, _mapRepeatStrategy, _setRepeatStrategy, _numberRepeatStrategy, _repeatUtilities, _analyzeViewFactory, _aureliaHideStyle) {
   'use strict';
@@ -26721,4 +28636,4 @@ define('aurelia-templating-router/route-href',['exports', 'aurelia-templating', 
     return RouteHref;
   }()) || _class) || _class) || _class) || _class) || _class);
 });
-function _aureliaConfigureModuleLoader(){requirejs.config({"baseUrl":"src/","paths":{"aurelia-binding":"..\\node_modules\\aurelia-binding\\dist\\amd\\aurelia-binding","aurelia-event-aggregator":"..\\node_modules\\aurelia-event-aggregator\\dist\\amd\\aurelia-event-aggregator","aurelia-bootstrapper":"..\\node_modules\\aurelia-bootstrapper\\dist\\amd\\aurelia-bootstrapper","aurelia-dependency-injection":"..\\node_modules\\aurelia-dependency-injection\\dist\\amd\\aurelia-dependency-injection","aurelia-history-browser":"..\\node_modules\\aurelia-history-browser\\dist\\amd\\aurelia-history-browser","aurelia-framework":"..\\node_modules\\aurelia-framework\\dist\\amd\\aurelia-framework","aurelia-loader":"..\\node_modules\\aurelia-loader\\dist\\amd\\aurelia-loader","aurelia-history":"..\\node_modules\\aurelia-history\\dist\\amd\\aurelia-history","aurelia-loader-default":"..\\node_modules\\aurelia-loader-default\\dist\\amd\\aurelia-loader-default","aurelia-logging-console":"..\\node_modules\\aurelia-logging-console\\dist\\amd\\aurelia-logging-console","aurelia-logging":"..\\node_modules\\aurelia-logging\\dist\\amd\\aurelia-logging","aurelia-metadata":"..\\node_modules\\aurelia-metadata\\dist\\amd\\aurelia-metadata","aurelia-pal":"..\\node_modules\\aurelia-pal\\dist\\amd\\aurelia-pal","aurelia-pal-browser":"..\\node_modules\\aurelia-pal-browser\\dist\\amd\\aurelia-pal-browser","aurelia-router":"..\\node_modules\\aurelia-router\\dist\\amd\\aurelia-router","aurelia-path":"..\\node_modules\\aurelia-path\\dist\\amd\\aurelia-path","aurelia-task-queue":"..\\node_modules\\aurelia-task-queue\\dist\\amd\\aurelia-task-queue","aurelia-polyfills":"..\\node_modules\\aurelia-polyfills\\dist\\amd\\aurelia-polyfills","aurelia-route-recognizer":"..\\node_modules\\aurelia-route-recognizer\\dist\\amd\\aurelia-route-recognizer","aurelia-templating":"..\\node_modules\\aurelia-templating\\dist\\amd\\aurelia-templating","aurelia-templating-binding":"..\\node_modules\\aurelia-templating-binding\\dist\\amd\\aurelia-templating-binding","text":"..\\node_modules\\text\\text","app-bundle":"../scripts/app-bundle"},"packages":[{"name":"aurelia-templating-resources","location":"../node_modules/aurelia-templating-resources/dist/amd","main":"aurelia-templating-resources"},{"name":"aurelia-templating-router","location":"../node_modules/aurelia-templating-router/dist/amd","main":"aurelia-templating-router"}],"stubModules":["text"],"shim":{},"bundles":{"app-bundle":["app","environment","main","resources/index"]}})}
+function _aureliaConfigureModuleLoader(){requirejs.config({"baseUrl":"src/","paths":{"aurelia-binding":"..\\node_modules\\aurelia-binding\\dist\\amd\\aurelia-binding","aurelia-dependency-injection":"..\\node_modules\\aurelia-dependency-injection\\dist\\amd\\aurelia-dependency-injection","aurelia-bootstrapper":"..\\node_modules\\aurelia-bootstrapper\\dist\\amd\\aurelia-bootstrapper","aurelia-event-aggregator":"..\\node_modules\\aurelia-event-aggregator\\dist\\amd\\aurelia-event-aggregator","aurelia-framework":"..\\node_modules\\aurelia-framework\\dist\\amd\\aurelia-framework","aurelia-history":"..\\node_modules\\aurelia-history\\dist\\amd\\aurelia-history","aurelia-loader":"..\\node_modules\\aurelia-loader\\dist\\amd\\aurelia-loader","aurelia-history-browser":"..\\node_modules\\aurelia-history-browser\\dist\\amd\\aurelia-history-browser","aurelia-loader-default":"..\\node_modules\\aurelia-loader-default\\dist\\amd\\aurelia-loader-default","aurelia-logging":"..\\node_modules\\aurelia-logging\\dist\\amd\\aurelia-logging","aurelia-logging-console":"..\\node_modules\\aurelia-logging-console\\dist\\amd\\aurelia-logging-console","aurelia-pal":"..\\node_modules\\aurelia-pal\\dist\\amd\\aurelia-pal","aurelia-metadata":"..\\node_modules\\aurelia-metadata\\dist\\amd\\aurelia-metadata","aurelia-path":"..\\node_modules\\aurelia-path\\dist\\amd\\aurelia-path","aurelia-pal-browser":"..\\node_modules\\aurelia-pal-browser\\dist\\amd\\aurelia-pal-browser","aurelia-route-recognizer":"..\\node_modules\\aurelia-route-recognizer\\dist\\amd\\aurelia-route-recognizer","aurelia-polyfills":"..\\node_modules\\aurelia-polyfills\\dist\\amd\\aurelia-polyfills","aurelia-task-queue":"..\\node_modules\\aurelia-task-queue\\dist\\amd\\aurelia-task-queue","aurelia-router":"..\\node_modules\\aurelia-router\\dist\\amd\\aurelia-router","aurelia-templating":"..\\node_modules\\aurelia-templating\\dist\\amd\\aurelia-templating","aurelia-templating-binding":"..\\node_modules\\aurelia-templating-binding\\dist\\amd\\aurelia-templating-binding","snapsvg":"..\\node_modules\\snapsvg\\dist\\snap.svg","orgchart.svg":"..\\node_modules\\orgchart.svg\\dist\\orgchart.svg","snap.svg.zpd":"..\\node_modules\\snap.svg.zpd\\snap.svg.zpd","es6-promise":"..\\node_modules\\es6-promise\\dist\\es6-promise","text":"..\\node_modules\\text\\text","app-bundle":"../scripts/app-bundle"},"packages":[{"name":"aurelia-templating-resources","location":"../node_modules/aurelia-templating-resources/dist/amd","main":"aurelia-templating-resources"},{"name":"aurelia-templating-router","location":"../node_modules/aurelia-templating-router/dist/amd","main":"aurelia-templating-router"}],"stubModules":["text"],"shim":{},"bundles":{"app-bundle":["app","environment","main","resources/index","orgchart.svg","snapsvg"]}})}

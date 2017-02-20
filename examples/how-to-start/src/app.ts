@@ -4,8 +4,11 @@ export class App {
   message = 'Hello World!';
   
   constructor() {
+      
+  }
+  
+  attached() {
       let orgchart = new OrgChartSvg(null);
-    
   }
   
 }
