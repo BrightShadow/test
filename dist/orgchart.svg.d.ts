@@ -1,3 +1,10 @@
+/**
+ * FIX: for Snapsvg typings.
+ */
+declare namespace Snap {
+	export interface Paper {}
+}
+
 declare module "config.debug.options" {
     export interface ConfigDebugOptions {
         showPlaceholderBoxes: boolean;
@@ -78,10 +85,13 @@ declare module "orgchart.events" {
     import 'snap.svg.zpd';
     import { OrgChartNode } from "orgchart.node";
     import { OrgChartConfig } from "org.chart.config";
+	
     /**
      * Provides information about rendering environment.
      */
     export interface RenderEventArgs {
+    	
+    	
         /**
          * A Snap.svg Paper object giving an access to the current underlying SVG paper.
          */
