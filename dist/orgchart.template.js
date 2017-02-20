@@ -1,4 +1,6 @@
 "use strict";
+require("snapsvg");
+require("snap.svg.zpd");
 var OrgChartTemplate = (function () {
     function OrgChartTemplate(snap) {
         this.snap = snap;

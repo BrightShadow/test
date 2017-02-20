@@ -1,3 +1,5 @@
+import 'snapsvg';
+import 'snap.svg.zpd';
 import { RenderBoxEventArgs } from "./orgchart.events";
 export declare class OrgChartTemplate {
     private snap;

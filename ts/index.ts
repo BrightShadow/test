@@ -1,6 +1,5 @@
 export * from "./config.debug.options";
 export * from "./connector.type";
-export * from "./demo.nodes";
 export * from "./node.options";
 export * from "./org.chart.config";
 export * from "./orgchart.events";

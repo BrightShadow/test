@@ -1,3 +1,5 @@
+import 'snapsvg';
+import 'snap.svg.zpd';
 import {OrgChartConfig} from "./org.chart.config";
 import {RenderBoxEventArgs} from "./orgchart.events";
 

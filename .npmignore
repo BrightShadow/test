@@ -1,3 +1,10 @@
 # Dependency directory
 node_modules
-#ts
+bower_components
+examples
+ts
+typings
+docs
+.idea
+test
+tests

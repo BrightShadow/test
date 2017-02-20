@@ -1,6 +1,6 @@
 {
   "name": "orgchart.svg",
-  "main": "dist/orgchart.svg.d.ts",
+  "main": "dist/index.d.ts",
   "globalDependencies": {
     "snapsvg": "registry:dt/snapsvg#0.4.1+20160510002910"
   }

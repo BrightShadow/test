@@ -1,3 +1,5 @@
+import 'snapsvg';
+import 'snap.svg.zpd';
 import { OrgChartNode } from "./orgchart.node";
 import { OrgChartConfig } from "./org.chart.config";
 /**

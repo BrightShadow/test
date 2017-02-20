@@ -14,7 +14,6 @@
 		"./typings/index.d.ts",
         "./ts/config.debug.options.ts",
 		"./ts/connector.type.ts",
-		"./ts/demo.nodes.ts",
 		"./ts/node.options.ts",
 		"./ts/org.chart.config.ts",
 		"./ts/orgchart.events.ts",

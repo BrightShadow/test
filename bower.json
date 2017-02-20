@@ -1,7 +1,7 @@
 {
   "name": "orgchart.svg",
   "description": "Modern organisational chart rendered with pure SVG.",
-  "main": "dist/orgchart.svg.js",
+  "main": "dist/index.js",
   "authors": [
     "brightshadow86@gmail.com"
   ],
@@ -17,6 +17,11 @@
   "ignore": [
     "**/.*",
     "node_modules",
+	"examples",
+	"ts",
+	"typings",
+	"docs",
+	".idea",
     "bower_components",
     "test",
     "tests"
