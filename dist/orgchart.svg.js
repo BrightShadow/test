@@ -121,8 +121,12 @@ define("orgchart.level.info", ["require", "exports"], function (require, exports
     }());
     exports.ChartLevelInfo = ChartLevelInfo;
 });
-define("orgchart.svg", ["require", "exports", "snapsvg", "es6-promise", "org.chart.config", "connector.type", "snap.svg.zpd"], function (require, exports, Snap, es6_promise_1, org_chart_config_1, connector_type_1) {
+define("orgchart.svg", ["require", "exports", "es6-promise", "org.chart.config", "connector.type", "snapsvg", "snap.svg.zpd"], function (require, exports, es6_promise_1, org_chart_config_1, connector_type_1) {
     "use strict";
+    /**
+     * Represents an Organisational Chart core component.
+     * Initialize new instance of this class to run orgchart machinery.
+     */
     var OrgChartSvg = (function () {
         function OrgChartSvg(config) {
             this.config = config;
@@ -139,7 +143,7 @@ define("orgchart.svg", ["require", "exports", "snapsvg", "es6-promise", "org.cha
             }
             // verify if SVG exists
             if (!document.getElementById(this.config.svgId)) {
-                alert('The SVG element is missing or the given name "' + this.config.svgId + '" is icorrect.');
+                alert('The SVG element is missing or the given name "' + this.config.svgId + '" is incorrect.');
                 return;
             }
             this.createOverlayElement();

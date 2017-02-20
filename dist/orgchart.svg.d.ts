@@ -250,8 +250,13 @@ declare module "orgchart.level.info" {
     }
 }
 declare module "orgchart.svg" {
+    import 'snapsvg';
     import 'snap.svg.zpd';
     import { OrgChartConfig } from "org.chart.config";
+    /**
+     * Represents an Organisational Chart core component.
+     * Initialize new instance of this class to run orgchart machinery.
+     */
     export class OrgChartSvg {
         private config;
         private levels;
