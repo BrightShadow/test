@@ -1,0 +1,8 @@
+{
+  "name": "how-to-start",
+  "dependencies": {},
+  "globalDevDependencies": {},
+  "globalDependencies": {
+    "snapsvg": "registry:dt/snapsvg#0.4.1+20160510002910"
+  }
+}
