@@ -17,6 +17,10 @@ import {ConnectorType} from "./connector.type";
 import {NodeToggleEventArgs} from "./orgchart.events";
 import {CustomClickEventArgs} from "./orgchart.events";
 
+/**
+ * Represents an Organisational Chart core component.
+ * Initialize new instance of this class to run orgchart machinery.
+ */
 export class OrgChartSvg {
 	private levels:ChartLevelInfo[] = [];
 	private snap:Snap.Paper;
@@ -42,7 +46,7 @@ export class OrgChartSvg {
 
 		// verify if SVG exists
 		if (!document.getElementById(this.config.svgId)) {
-			alert('The SVG element is missing or the given name "' + this.config.svgId + '" is icorrect.');
+			alert('The SVG element is missing or the given name "' + this.config.svgId + '" is incorrect.');
 			return;
 		}
 

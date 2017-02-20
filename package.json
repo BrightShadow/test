@@ -1,40 +1,40 @@
 {
-  "name": "orgchart.svg",
-  "version": "1.0.0-beta.4.1",
-  "description": "Modern organisational chart rendered with pure SVG.",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "typings": "dist/index",
-  "scripts": {
-    "test": "echo \"No test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/BrightShadow/orgchart.svg.git"
-  },
-  "keywords": [
-    "typescript",
-    "csinterface",
-    "adobe",
-    "cep",
-    "extension",
-    "plugin"
-  ],
-  "author": "brightshadow86@gmail.com",
-  "maintainers": [
-    {
-      "name": "Pawel Porombka",
-      "email": "brightshadow86@gmail.com"
+    "name": "orgchart.svg",
+    "version": "1.0.0-beta.4.2",
+    "description": "Modern organisational chart rendered with pure SVG.",
+    "main": "dist/orgchart.svg.js",
+    "types": "dist/orgchart.svg.d.ts",
+    "typings": "dist/orgchart.svg",
+    "scripts": {
+        "test": "echo \"No test specified\" && exit 1"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/BrightShadow/orgchart.svg.git"
+    },
+    "keywords": [
+        "typescript",
+        "csinterface",
+        "adobe",
+        "cep",
+        "extension",
+        "plugin"
+    ],
+    "author": "brightshadow86@gmail.com",
+    "maintainers": [
+        {
+            "name": "Pawel Porombka",
+            "email": "brightshadow86@gmail.com"
+        }
+    ],
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/BrightShadow/orgchart.svg/issues"
+    },
+    "homepage": "https://github.com/BrightShadow/orgchart.svg#readme",
+    "dependencies": {
+        "es6-promise": "4.0.5",
+        "snap.svg.zpd": "0.0.11",
+        "snapsvg": "0.5.1"
     }
-  ],
-  "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/BrightShadow/orgchart.svg/issues"
-  },
-  "homepage": "https://github.com/BrightShadow/orgchart.svg#readme",
-  "dependencies": {
-    "es6-promise": "^4.0.5",
-    "snap.svg.zpd": "0.0.11",
-    "snapsvg": "^0.5.1"
-  }
 }
