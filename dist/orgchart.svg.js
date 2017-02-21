@@ -44,7 +44,7 @@ define("orghcart.connector.options", ["require", "exports"], function (require, 
 define("tip.over.options", ["require", "exports"], function (require, exports) {
     "use strict";
 });
-define("orgchart.events", ["require", "exports", "snapsvg", "snap.svg.zpd"], function (require, exports) {
+define("orgchart.events", ["require", "exports", "snap.svg.zpd"], function (require, exports) {
     "use strict";
 });
 define("org.chart.config", ["require", "exports", "node.options"], function (require, exports, node_options_1) {
@@ -121,7 +121,7 @@ define("orgchart.level.info", ["require", "exports"], function (require, exports
     }());
     exports.ChartLevelInfo = ChartLevelInfo;
 });
-define("orgchart.svg", ["require", "exports", "es6-promise", "org.chart.config", "connector.type", "snapsvg", "snap.svg.zpd"], function (require, exports, es6_promise_1, org_chart_config_1, connector_type_1) {
+define("orgchart.svg", ["require", "exports", "snapsvg", "es6-promise", "org.chart.config", "connector.type", "snap.svg.zpd"], function (require, exports, Snap, es6_promise_1, org_chart_config_1, connector_type_1) {
     "use strict";
     /**
      * Represents an Organisational Chart core component.
@@ -1225,7 +1225,7 @@ define("orgchart.svg", ["require", "exports", "es6-promise", "org.chart.config",
         return FindLinesFilter;
     }());
 });
-define("orgchart.template", ["require", "exports", "snapsvg", "snap.svg.zpd"], function (require, exports) {
+define("orgchart.template", ["require", "exports", "snapsvg", "snap.svg.zpd"], function (require, exports, Snap) {
     "use strict";
     var OrgChartTemplate = (function () {
         function OrgChartTemplate(snap) {
@@ -1250,4 +1250,3 @@ define("orgchart.template", ["require", "exports", "snapsvg", "snap.svg.zpd"], f
     }());
     exports.OrgChartTemplate = OrgChartTemplate;
 });
-//# sourceMappingURL=orgchart.svg.js.map

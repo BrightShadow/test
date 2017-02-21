@@ -8,12 +8,13 @@
 		"preserveConstEnums": true,
 		"declaration": true,
 		"suppressImplicitAnyIndexErrors": true,
-		"sourceMap": true,
+		"sourceMap": false,
 		"experimentalDecorators": true,
 		"outFile": "./dist/orgchart.svg.js"
 	},
 	"files": [
 		"./typings/index.d.ts",
+		"./ts/snapsvg.ts",
 		"./ts/config.debug.options.ts",
 		"./ts/connector.type.ts",
 		"./ts/node.options.ts",

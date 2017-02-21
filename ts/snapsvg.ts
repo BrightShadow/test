@@ -389,3 +389,7 @@ declare namespace Snap {
         bez2:Array<number>
     }
 }
+
+declare module "snapsvg" {
+	export = Snap;
+}

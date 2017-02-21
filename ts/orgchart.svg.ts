@@ -1,4 +1,4 @@
-import 'snapsvg';
+import * as Snap from 'snapsvg';
 import 'snap.svg.zpd';
 import {Promise} from 'es6-promise';
 import {OrgChartConfig} from "./org.chart.config";
